@@ -1,0 +1,17 @@
+# 7-Band Parametric Audio Equalizer — dependencies
+#
+# Verified working on Python 3.12.13 (macOS arm64). Python 3.10-3.13 are fine;
+# 3.14 is not recommended yet because scipy/matplotlib wheels lag behind.
+#
+#   python3.12 -m venv .venv
+#   .venv/bin/pip install -r requirements.txt
+
+numpy==2.5.3          # array maths, FFT support
+scipy==1.18.1         # sosfilt / sosfreqz / welch — the filtering engine
+soundfile==0.14.0     # libsndfile bindings: WAV/FLAC/OGG/MP3 read + write
+streamlit==1.63.0     # GUI framework
+matplotlib==3.11.1    # the three embedded plots (Agg backend, never a popup)
+
+# soundfile ships libsndfile as a wheel; 1.1+ is required for MP3 and this
+# install pulls 1.2.2. On Linux without the bundled library, install the
+# system package too:  sudo apt install libsndfile1

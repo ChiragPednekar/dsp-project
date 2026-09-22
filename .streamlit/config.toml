@@ -1,0 +1,15 @@
+[theme]
+base = "dark"
+primaryColor = "#00d4a0"
+backgroundColor = "#0e1117"
+secondaryBackgroundColor = "#161b22"
+textColor = "#c9d1d9"
+
+[server]
+headless = true
+# Audio uploads are large; the default 200 MB cap is more than enough but the
+# explicit value documents the limit the loader also enforces by duration.
+maxUploadSize = 200
+
+[browser]
+gatherUsageStats = false
