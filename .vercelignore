@@ -1,0 +1,11 @@
+# The Vercel deployment is the static site in web/ only. The Python
+# implementation stays in the repo for reference but is never built.
+.venv/
+__pycache__/
+samples/
+eqcore/
+tools/
+ui/
+app.py
+requirements.txt
+run.sh

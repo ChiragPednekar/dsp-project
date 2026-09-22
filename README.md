@@ -35,6 +35,61 @@ Verify the DSP independently at any time:
 
 ---
 
+## The browser build (deployed on Vercel)
+
+`web/` is the same equalizer as a static site, so it can be deployed anywhere
+that serves files — including Vercel, which cannot host the Streamlit app
+(Streamlit needs a long-running server holding a WebSocket per visitor;
+Vercel runs static assets and short-lived serverless functions).
+
+```bash
+cd web && python3 -m http.server 8777    # then open http://localhost:8777
+```
+
+Deploy from the repo root:
+
+```bash
+npx vercel deploy --prod
+```
+
+`vercel.json` pins it to a no-build static deployment of `web/`, and
+`.vercelignore` keeps the Python implementation out of the upload.
+
+### It is the same DSP, not a lookalike
+
+Web Audio's `BiquadFilterNode` implements the *same* Audio EQ Cookbook
+formulas that `eqcore/biquad.py` spells out, so the browser build drives
+native biquads with the band table from `eqcore/equalizer.py` rather than
+reimplementing the coefficients. The two shelves line up as well: Web Audio
+ignores `.Q` on a shelf and uses slope `S = 1`, and
+
+    alpha = sin(w0)/2 · sqrt((A + 1/A)(1/S − 1) + 2)  with S = 1
+          = sin(w0)·sqrt(2)/2
+          = sin(w0)/(2Q)                              with Q = 0.707
+
+which is exactly what `eqcore` passes. Measured against `scipy.signal.sosfreqz`
+for the Loudness preset at 48 kHz, the two responses agree to **4×10⁻⁴ dB** —
+float32 rounding in `getFrequencyResponse`, not an algorithmic difference.
+
+What *is* ported by hand, because the browser has no SciPy, is the analysis:
+Welch's method, fractional-octave smoothing and the waveform envelope, all in
+`web/dsp.js`. Those agree with `scipy.signal.welch` to **5×10⁻⁵ dB** across a
+140 dB range, DC bin included.
+
+### Differences from the Python version
+
+| | Python / Streamlit | Browser |
+|---|---|---|
+| Filtering | `scipy.signal.sosfilt`, whole file per change | native biquads, live on the audio thread |
+| Decoding | libsndfile via `soundfile` | the browser's own decoder |
+| Demo clip | `samples/demo.wav`, 7.9 MB in the repo | synthesised on load by `web/demo.js` |
+| Headroom trim | exact peak of the filtered file | estimated from the first 30 s while you drag; exact on export |
+| Export | WAV or MP3 | 16-bit PCM WAV |
+
+Audio never leaves the tab — there is no upload and no server side.
+
+---
+
 ## Using it
 
 1. **Load audio** — *Upload an audio file* in the sidebar (WAV, MP3, FLAC, OGG,
@@ -86,6 +141,17 @@ ui/
 tools/
   make_sample.py        Generates samples/demo.wav
   verify_dsp.py         Numerical proof that the filters do what the curve says
+
+web/                    The static browser build — what Vercel serves
+  index.html            Markup; the band reference table is built from dsp.js
+  dsp.js                Band table, presets, Welch spectrum, envelopes, WAV encoder
+  demo.js               Port of tools/make_sample.py — builds the demo clip in-tab
+  plots.js              The three canvas plots (no charting library)
+  app.js                Audio graph, transport, and UI wiring
+  styles.css            Dark theme carried over from .streamlit/config.toml
+
+vercel.json             No-build static deployment of web/
+.vercelignore           Keeps the Python implementation out of the upload
 ```
 
 ---

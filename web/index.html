@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>7-Band Parametric Audio Equalizer</title>
+<meta name="description" content="A 7-band parametric audio equalizer built on cascaded RBJ biquad filters, running entirely in the browser.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>%F0%9F%8E%9B%EF%B8%8F</text></svg>">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div id="drop" class="drop-hint" aria-hidden="true"><span>Drop an audio file</span></div>
+
+<div class="layout">
+
+  <aside class="sidebar">
+    <h1 class="brand">🎛️ Equalizer</h1>
+
+    <section class="panel">
+      <h2 class="step">1 · Audio source</h2>
+      <label class="file-button">
+        <input type="file" id="file" accept="audio/*,.wav,.mp3,.flac,.ogg,.aiff,.aif,.m4a,.aac">
+        <span>Choose an audio file</span>
+      </label>
+      <p class="hint">WAV, MP3, FLAC, OGG, M4A, AAC — or drop a file anywhere on the page. Nothing is uploaded; decoding and filtering happen in this tab.</p>
+      <button type="button" id="demoBtn" class="secondary">Load demo clip</button>
+
+      <div id="clipInfo" class="clip" hidden>
+        <span id="clipName" class="clip-name"></span>
+        <span id="clipMeta" class="clip-meta"></span>
+      </div>
+      <p id="error" class="error" role="alert" hidden></p>
+    </section>
+
+    <section class="panel">
+      <h2 class="step">2 · Preset</h2>
+      <select id="preset" aria-label="EQ preset"></select>
+      <p id="presetNote" class="hint"></p>
+    </section>
+
+    <section class="panel">
+      <h2 class="step">3 · Bands</h2>
+      <p class="hint">Each slider sets one biquad's gain, −12 to +12 dB. Double-click a slider to return it to 0 dB.</p>
+      <div id="bands" class="bands"></div>
+      <button type="button" id="resetBtn" class="secondary">Reset all bands</button>
+    </section>
+  </aside>
+
+  <main class="content">
+    <header class="masthead">
+      <h2>7-Band Parametric Audio Equalizer</h2>
+      <p class="lede">Cascaded biquad filters — RBJ Audio EQ Cookbook — designed and applied in real time to your own audio.</p>
+    </header>
+
+    <p id="empty" class="callout">
+      👈 Choose an audio file in the sidebar to begin, or press <strong>Load demo clip</strong>
+      to try the EQ on a synthetic full-spectrum tone.
+    </p>
+
+    <section class="card">
+      <h3>The filter chain</h3>
+      <p class="caption">
+        The live frequency response of the chain at the current slider positions. This is read back
+        out of the filters themselves, so it is the response of what actually processes the audio —
+        not a drawing of the sliders.
+      </p>
+      <div class="plot plot-eq"><canvas id="eqCanvas"></canvas></div>
+
+      <details class="band-table">
+        <summary>What each band does</summary>
+        <table>
+          <thead><tr><th>Band</th><th>Type</th><th>Centre / corner</th><th>Q</th><th>Range</th></tr></thead>
+          <tbody id="bandTableBody"></tbody>
+        </table>
+        <p class="caption">
+          Shelves at the extremes so the very bottom and top of the spectrum are lifted as a whole;
+          bells in between, each Q derived from that band's width in octaves so the bells tile the
+          spectrum evenly instead of leaving holes.
+        </p>
+      </details>
+    </section>
+
+    <div id="transport" class="card transport" hidden>
+      <div class="transport-row">
+        <button type="button" id="playBtn" class="primary">Play</button>
+        <button type="button" id="stopBtn" class="secondary">Stop</button>
+
+        <div class="progress" id="progress" role="slider" tabindex="0"
+             aria-label="Playback position" aria-valuemin="0" aria-valuemax="100">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <span class="time"><span id="position">0:00</span> / <span id="duration">0:00</span></span>
+      </div>
+
+      <div class="transport-row transport-secondary">
+        <label class="toggle">
+          <input type="checkbox" id="bypass">
+          <span id="bypassLabel">Hearing: equalised</span>
+        </label>
+        <span class="ab-hint">Toggle to A/B against the untouched original.</span>
+        <button type="button" id="downloadBtn" class="secondary">Download processed WAV</button>
+      </div>
+
+      <p id="headroom" class="headroom" hidden></p>
+    </div>
+
+    <div id="analysis" hidden>
+      <section class="card">
+        <h3>Spectrum</h3>
+        <p class="caption">
+          Welch-averaged FFT magnitude, 1/12-octave smoothed, before and after the chain.
+          Averaging overlapping windows rather than taking one giant FFT is what makes the
+          EQ's effect readable instead of buried in bin noise.
+        </p>
+        <div class="plot"><canvas id="spectrumCanvas"></canvas></div>
+      </section>
+
+      <section class="card">
+        <h3>Waveform</h3>
+        <p class="caption">
+          Min/max envelope of each bucket, so transients survive the downsampling. The processed
+          lane includes the headroom trim, so it shows what you actually hear.
+        </p>
+        <div class="plot"><canvas id="waveCanvas"></canvas></div>
+      </section>
+    </div>
+
+    <footer class="colophon">
+      <p>
+        DSP runs in the browser on Web Audio <code>BiquadFilterNode</code>s, which implement the same
+        Audio EQ Cookbook formulas as the Python <code>eqcore</code> package in this repository —
+        the shelves' default slope S&nbsp;=&nbsp;1 is exactly the Q&nbsp;=&nbsp;0.707 that version passes.
+        Analysis (Welch spectrum, fractional-octave smoothing, envelopes) is ported in
+        <code>dsp.js</code>.
+      </p>
+    </footer>
+  </main>
+</div>
+
+<div id="busy" class="busy" hidden><span class="spinner"></span>Working…</div>
+
+<script type="module" src="app.js"></script>
+<script type="module">
+  // The band reference table is data, so build it from the same source the
+  // filters come from rather than hand-writing it into the markup.
+  import { BANDS } from './dsp.js';
+  const kinds = { lowshelf: 'Low shelf', peaking: 'Peaking', highshelf: 'High shelf' };
+  document.getElementById('bandTableBody').innerHTML = BANDS.map((b) => `
+    <tr>
+      <td>${b.name}</td>
+      <td>${kinds[b.kind]}</td>
+      <td>${b.f0 >= 1000 ? `${(b.f0 / 1000).toFixed(b.f0 % 1000 ? 3 : 0)} kHz` : `${b.f0} Hz`}</td>
+      <td>${b.q.toFixed(3)}</td>
+      <td>${b.span}</td>
+    </tr>`).join('');
+</script>
+
+</body>
+</html>
