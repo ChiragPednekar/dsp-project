@@ -1,7 +1,8 @@
 # 7-Band Parametric Audio Equalizer — dependencies
 #
-# Verified working on Python 3.12.13 (macOS arm64). Python 3.10-3.13 are fine;
-# 3.14 is not recommended yet because scipy/matplotlib wheels lag behind.
+# Verified on Python 3.12 and 3.13. 3.12 is the floor: numpy 2.5.3 and
+# scipy 1.18.1 both declare requires-python >=3.12. 3.14 is not recommended
+# yet because scipy/matplotlib wheels lag behind.
 #
 #   python3.12 -m venv .venv
 #   .venv/bin/pip install -r requirements.txt

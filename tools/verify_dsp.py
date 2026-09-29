@@ -18,7 +18,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from eqcore import biquad, equalizer, presets  # noqa: E402
+from eqcore import biquad, equalizer, presets
 
 FS = 44100
 failures: list[str] = []
@@ -104,7 +104,8 @@ gains = equalizer.flat_gains()
 gains["bass"] = 12.0
 for probe, limit in [(1000.0, 1.0), (5000.0, 0.5), (12000.0, 0.5)]:
     leak = abs(response_at(gains, probe))
-    check(f"bass +12 dB leaks < {limit} dB at {probe:.0f} Hz", leak < limit, f"{leak:.3f} dB")
+    check(f"bass +12 dB leaks < {limit} dB at {probe:.0f} Hz",
+          leak < limit, f"{leak:.3f} dB")
 
 print("\n=== 4. Flat settings are a true pass-through ===")
 x = sine(1000.0)
@@ -120,13 +121,15 @@ for band in equalizer.BANDS:
             sec = biquad.design(band.kind, band.f0, float(gain), band.q, fs)
             if not biquad.is_stable(sec):
                 unstable.append((band.key, gain, fs))
-check("every band stable at all gains / sample rates", not unstable, f"{len(unstable)} unstable")
+check("every band stable at all gains / sample rates", not unstable,
+      f"{len(unstable)} unstable")
 
 print("\n=== 6. Gain staging prevents clipping ===")
 loud = (0.95 * np.sin(2 * np.pi * 120 * np.arange(FS * 2) / FS)).astype(np.float32)
 result = equalizer.process(loud, FS, presets.get("Bass Boost"))
 peak = float(np.max(np.abs(result.audio)))
-check("output peak within headroom", peak <= equalizer.HEADROOM_PEAK + 1e-6, f"peak {peak:.4f}")
+check("output peak within headroom", peak <= equalizer.HEADROOM_PEAK + 1e-6,
+      f"peak {peak:.4f}")
 check("attenuation was reported", result.clipped and result.applied_gain_db < 0,
       f"applied {result.applied_gain_db:.2f} dB")
 
@@ -137,7 +140,8 @@ stereo = np.stack([left, right], axis=1)
 gains = equalizer.flat_gains()
 gains["bass"] = 12.0
 out = equalizer.process(stereo, FS, gains, headroom_peak=1e9).audio
-check("stereo shape preserved", out.shape == stereo.shape, f"{stereo.shape} -> {out.shape}")
+check("stereo shape preserved", out.shape == stereo.shape,
+      f"{stereo.shape} -> {out.shape}")
 l_gain = 20 * np.log10(steady_state_amplitude(out[:, 0]) / steady_state_amplitude(left))
 r_gain = 20 * np.log10(steady_state_amplitude(out[:, 1]) / steady_state_amplitude(right))
 check("left (120 Hz) boosted", l_gain > 10.0, f"{l_gain:+.2f} dB")

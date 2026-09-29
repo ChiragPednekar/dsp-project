@@ -1,0 +1,59 @@
+{
+  "cases": [
+    {
+      "applied_gain_db": 0.0,
+      "clipped": false,
+      "peak": 0.0,
+      "scale": 1.0
+    },
+    {
+      "applied_gain_db": 0.0,
+      "clipped": false,
+      "peak": 0.25,
+      "scale": 1.0
+    },
+    {
+      "applied_gain_db": 0.0,
+      "clipped": false,
+      "peak": 0.5,
+      "scale": 1.0
+    },
+    {
+      "applied_gain_db": 0.0,
+      "clipped": false,
+      "peak": 0.8999,
+      "scale": 1.0
+    },
+    {
+      "applied_gain_db": 0.0,
+      "clipped": false,
+      "peak": 0.9,
+      "scale": 1.0
+    },
+    {
+      "applied_gain_db": -0.0009650452360426258,
+      "clipped": true,
+      "peak": 0.9001,
+      "scale": 0.9998889012331963
+    },
+    {
+      "applied_gain_db": -0.9151498112135024,
+      "clipped": true,
+      "peak": 1.0,
+      "scale": 0.9
+    },
+    {
+      "applied_gain_db": -2.1124742194322907,
+      "clipped": true,
+      "peak": 1.1478,
+      "scale": 0.7841087297438579
+    },
+    {
+      "applied_gain_db": -8.873949984654255,
+      "clipped": true,
+      "peak": 2.5,
+      "scale": 0.36
+    }
+  ],
+  "headroom_peak": 0.9
+}

@@ -81,6 +81,7 @@ def set_clip(clip, clip_id: str) -> None:
     st.session_state["load_error"] = ""
     st.session_state.pop("render_cache", None)
     st.session_state.pop("source_cache", None)
+    st.session_state.pop("export_cache", None)
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +129,44 @@ def render(clip, gains: dict[str, float]) -> dict:
     return payload
 
 
+@st.cache_resource(show_spinner=False)
+def export_formats() -> list[str]:
+    """
+    Containers this libsndfile build can actually write.
+
+    The probe encodes a few samples in each candidate format to prove the
+    encoder really exists, so it is far too expensive to repeat on every
+    rerun — and the answer cannot change while the process is alive.
+    """
+    return audio_io.available_export_formats()
+
+
+def exported(clip, rendered: dict, container: str) -> bytes:
+    """
+    The processed audio in `container`, encoded as rarely as possible.
+
+    st.download_button needs the bytes up front — it cannot call back when the
+    button is pressed — so something has to be encoded on every rerun. Two
+    things keep that cheap:
+
+      * when the export container is the one the transport already uses, its
+        bytes are reused outright and nothing is encoded at all;
+      * otherwise the result is memoised on the same signature `render` uses,
+        so only an actual change to the audio or the format re-encodes.
+    """
+    if container == PLAYBACK_FORMAT:
+        return rendered["bytes"]
+
+    signature = (rendered["signature"], container)
+    cache = st.session_state.get("export_cache")
+    if cache and cache["signature"] == signature:
+        return cache["bytes"]
+
+    data = audio_io.encode(rendered["result"].audio, clip.sample_rate, container)
+    st.session_state["export_cache"] = {"signature": signature, "bytes": data}
+    return data
+
+
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
@@ -160,16 +199,18 @@ def sidebar() -> None:
             else:
                 set_clip(clip, upload_id)
 
-    if DEMO_PATH.exists():
-        if sb.button("Load demo clip", width="stretch",
-                     help="A synthetic full-spectrum test tone for trying the EQ."):
-            try:
-                clip = audio_io.load(DEMO_PATH.read_bytes(), DEMO_PATH.name)
-            except AudioLoadError as exc:
-                st.session_state["load_error"] = str(exc)
-            else:
-                st.session_state["last_upload_id"] = "demo"
-                set_clip(clip, "demo")
+    if DEMO_PATH.exists() and sb.button(
+        "Load demo clip",
+        width="stretch",
+        help="A synthetic full-spectrum test tone for trying the EQ.",
+    ):
+        try:
+            clip = audio_io.load(DEMO_PATH.read_bytes(), DEMO_PATH.name)
+        except AudioLoadError as exc:
+            st.session_state["load_error"] = str(exc)
+        else:
+            st.session_state["last_upload_id"] = "demo"
+            set_clip(clip, "demo")
 
     if st.session_state["load_error"]:
         sb.error(st.session_state["load_error"], icon="🚫")
@@ -257,7 +298,7 @@ def welcome() -> None:
 
 
 def main_panel(clip) -> None:
-    gains = gains_now = current_gains()
+    gains_now = current_gains()
     rendered = render(clip, gains_now)
     result = rendered["result"]
 
@@ -298,12 +339,12 @@ def main_panel(clip) -> None:
         )
 
     # --- Export -----------------------------------------------------------
-    formats = audio_io.available_export_formats()
+    formats = export_formats()
     e1, e2 = st.columns([1, 3])
     export_format = e1.selectbox("Export format", formats, index=0)
 
     stem = Path(clip.name).stem or "audio"
-    export_bytes = audio_io.encode(result.audio, clip.sample_rate, export_format)
+    export_bytes = exported(clip, rendered, export_format)
     e2.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
     e2.download_button(
         f"⬇  Export EQ'd audio  ({len(export_bytes) / 1_048_576:.1f} MB)",

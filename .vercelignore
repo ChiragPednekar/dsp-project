@@ -1,11 +1,27 @@
-# The Vercel deployment is the static site in web/ only. The Python
-# implementation stays in the repo for reference but is never built.
+# The Vercel deployment is the static site in web/ only — vercel.json points
+# outputDirectory there and skips the install and build steps entirely.
+#
+# web/spec.js is generated from shared/eq_spec.json and committed, so the
+# browser build needs nothing from the Python side at runtime.
+
 .venv/
 __pycache__/
-samples/
+node_modules/
+
+# Python implementation
 eqcore/
-tools/
 ui/
+tools/
+samples/
 app.py
 requirements.txt
+pyproject.toml
 run.sh
+
+# Tests and CI
+tests/
+shared/
+.github/
+playwright.config.mjs
+package.json
+package-lock.json

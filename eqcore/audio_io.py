@@ -15,8 +15,10 @@ from dataclasses import dataclass
 import numpy as np
 import soundfile as sf
 
+from . import spec
+
 #: Refuse absurdly long files rather than melting the machine on a bad upload.
-MAX_DURATION_SECONDS = 15 * 60
+MAX_DURATION_SECONDS = spec.MAX_DURATION_SECONDS
 
 
 class AudioLoadError(Exception):
@@ -46,7 +48,7 @@ class AudioClip:
 
     @property
     def duration_str(self) -> str:
-        total = int(round(self.duration))
+        total = round(self.duration)
         return f"{total // 60}:{total % 60:02d}"
 
 
@@ -75,8 +77,8 @@ def _mp3_hint(name: str) -> str:
     """
     if name.lower().endswith(".mp3") and "MP3" not in sf.available_formats():
         return (
-            " This build of libsndfile (%s) has no MP3 support — "
-            "converting the file to WAV will work." % sf.__libsndfile_version__
+            f" This build of libsndfile ({sf.__libsndfile_version__}) has no "
+            f"MP3 support — converting the file to WAV will work."
         )
     return ""
 
@@ -96,7 +98,7 @@ def load(data: bytes, name: str = "audio") -> AudioClip:
         samples, sample_rate = sf.read(
             io.BytesIO(data), dtype="float32", always_2d=False
         )
-    except Exception as exc:  # noqa: BLE001 - libsndfile raises several types
+    except Exception as exc:
         raise AudioLoadError(
             f"Could not decode “{name}” as audio — {_clean_decoder_message(exc)}. "
             f"Supported formats are WAV, FLAC, OGG and MP3.{_mp3_hint(name)}"
@@ -106,7 +108,9 @@ def load(data: bytes, name: str = "audio") -> AudioClip:
         raise AudioLoadError(f"“{name}” decoded to zero samples — the file has no audio.")
 
     if sample_rate <= 0:
-        raise AudioLoadError(f"“{name}” reports an invalid sample rate ({sample_rate} Hz).")
+        raise AudioLoadError(
+            f"“{name}” reports an invalid sample rate ({sample_rate} Hz)."
+        )
 
     duration = samples.shape[0] / float(sample_rate)
     if duration > MAX_DURATION_SECONDS:
@@ -122,7 +126,7 @@ def load(data: bytes, name: str = "audio") -> AudioClip:
 
     try:
         subtype = sf.info(io.BytesIO(data)).subtype or "unknown"
-    except Exception:  # noqa: BLE001 - purely informational
+    except Exception:
         subtype = "unknown"
 
     return AudioClip(
@@ -175,7 +179,7 @@ def encode(samples: np.ndarray, sample_rate: int, container: str) -> bytes:
             subtype=subtypes.get(container),
         )
         return buffer.getvalue()
-    except Exception:  # noqa: BLE001 - format unsupported in this build
+    except Exception:
         return encode_wav(audio, sample_rate)
 
 
@@ -200,7 +204,7 @@ def available_export_formats() -> list[str]:
                 subtype={"FLAC": "PCM_16", "OGG": "VORBIS",
                          "MP3": "MPEG_LAYER_III"}.get(name, "PCM_16"),
             )
-        except Exception:  # noqa: BLE001 - encoder missing in this build
+        except Exception:
             continue
         usable.append(name)
 

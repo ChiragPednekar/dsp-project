@@ -1,0 +1,106 @@
+{
+  "_comment": [
+    "SINGLE SOURCE OF TRUTH for the equaliser's band layout, presets and limits.",
+    "",
+    "Both front ends read these numbers rather than each keeping a copy:",
+    "  * Python  — eqcore/spec.py loads this file at import time.",
+    "  * Browser — web/spec.js is GENERATED from this file by tools/gen_web_spec.py.",
+    "",
+    "Edit this file, then run `python tools/gen_web_spec.py`. CI fails if the",
+    "generated file is stale (tests/test_spec_parity.py).",
+    "",
+    "A band declares its Q either directly ('q', used for the shelves) or as a",
+    "bandwidth in octaves ('bandwidth_octaves', used for the bells), from which",
+    "Q = sqrt(2^N) / (2^N - 1). Deriving it is what makes the bells tile the",
+    "spectrum evenly instead of leaving holes between them."
+  ],
+
+  "version": 1,
+
+  "constants": {
+    "gain_min_db": -12.0,
+    "gain_max_db": 12.0,
+    "headroom_peak": 0.90,
+    "max_duration_seconds": 900,
+    "browser_max_duration_seconds": 420
+  },
+
+  "bands": [
+    {
+      "key": "sub_bass", "name": "Sub-bass", "kind": "low_shelf",
+      "f0": 60.0, "q": 0.707, "span": "20 – 60 Hz"
+    },
+    {
+      "key": "bass", "name": "Bass", "kind": "peaking",
+      "f0": 122.0, "bandwidth_octaves": 2.06, "span": "60 – 250 Hz"
+    },
+    {
+      "key": "low_mid", "name": "Low-mid", "kind": "peaking",
+      "f0": 354.0, "bandwidth_octaves": 1.0, "span": "250 – 500 Hz"
+    },
+    {
+      "key": "mid", "name": "Mid", "kind": "peaking",
+      "f0": 1000.0, "bandwidth_octaves": 2.0, "span": "500 Hz – 2 kHz"
+    },
+    {
+      "key": "high_mid", "name": "High-mid", "kind": "peaking",
+      "f0": 2828.0, "bandwidth_octaves": 1.0, "span": "2 – 4 kHz"
+    },
+    {
+      "key": "presence", "name": "Presence", "kind": "peaking",
+      "f0": 4899.0, "bandwidth_octaves": 0.585, "span": "4 – 6 kHz"
+    },
+    {
+      "key": "brilliance", "name": "Brilliance", "kind": "high_shelf",
+      "f0": 8000.0, "q": 0.707, "span": "6 – 20 kHz"
+    }
+  ],
+
+  "presets": [
+    {
+      "name": "Flat / Reset",
+      "note": "All bands at 0 dB — the filter chain becomes a pass-through.",
+      "gains": {}
+    },
+    {
+      "name": "Bass Boost",
+      "note": "Low-shelf lift under 60 Hz plus a bell at 122 Hz for weight and punch.",
+      "gains": {
+        "sub_bass": 8.0, "bass": 6.0, "low_mid": 1.5, "mid": 0.0,
+        "high_mid": 0.0, "presence": 0.0, "brilliance": 1.5
+      }
+    },
+    {
+      "name": "Vocal Boost",
+      "note": "Cuts rumble, lifts 1–5 kHz where speech intelligibility lives.",
+      "gains": {
+        "sub_bass": -4.0, "bass": -2.0, "low_mid": -1.0, "mid": 3.5,
+        "high_mid": 5.0, "presence": 4.0, "brilliance": 1.0
+      }
+    },
+    {
+      "name": "Treble Boost",
+      "note": "High-shelf air above 8 kHz with a presence lift for detail.",
+      "gains": {
+        "sub_bass": 0.0, "bass": -1.0, "low_mid": -1.0, "mid": 0.0,
+        "high_mid": 3.0, "presence": 5.0, "brilliance": 7.5
+      }
+    },
+    {
+      "name": "Loudness (V-shape)",
+      "note": "Boosts both extremes and scoops the mids — the classic smiley curve.",
+      "gains": {
+        "sub_bass": 6.0, "bass": 4.5, "low_mid": -1.0, "mid": -3.0,
+        "high_mid": -1.0, "presence": 3.5, "brilliance": 6.0
+      }
+    },
+    {
+      "name": "Podcast / Speech",
+      "note": "Steep low-end cut to kill room rumble, forward upper mids.",
+      "gains": {
+        "sub_bass": -10.0, "bass": -5.0, "low_mid": -2.0, "mid": 2.5,
+        "high_mid": 4.0, "presence": 3.0, "brilliance": -1.0
+      }
+    }
+  ]
+}

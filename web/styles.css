@@ -7,7 +7,10 @@
   --line: #21262d;
   --ink: #c9d1d9;
   --ink-dim: #8b949e;
-  --ink-faint: #6e7681;
+  /* 5.07:1 on --panel-2 and 4.64:1 on --panel: passes WCAG AA for normal
+     text. The previous #6e7681 was 4.12:1, and this token is used for
+     10px plot tick labels and the band ranges. */
+  --ink-faint: #7d8590;
   --accent: #00d4a0;
   --accent-dim: #00a37c;
   --danger: #f85149;

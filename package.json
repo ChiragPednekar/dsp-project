@@ -1,0 +1,14 @@
+{
+  "name": "dsp-equalizer",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Browser-level tests for the static equaliser build in web/.",
+  "scripts": {
+    "test": "node --test tests/js/dsp.test.mjs",
+    "test:browser": "playwright test",
+    "serve": "python3 -m http.server 8788 --directory web"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1"
+  }
+}

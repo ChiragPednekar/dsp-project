@@ -1,0 +1,6 @@
+{
+  "name": "eq-web",
+  "private": true,
+  "type": "module",
+  "description": "Marks web/*.js as ES modules so Node can import them for tests. The browser loads them as modules regardless; this file exists for the test runner."
+}

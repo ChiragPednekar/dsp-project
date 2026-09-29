@@ -16,7 +16,8 @@ if [ ! -d "$VENV" ]; then
   "$VENV/bin/pip" install --quiet -r requirements.txt
 fi
 
-# The demo clip is generated rather than committed as a binary blob.
+# samples/demo.wav is committed so a fresh clone works offline, but
+# regenerate it here if it is ever missing.
 if [ ! -f samples/demo.wav ]; then
   echo "==> Generating the demo clip"
   "$VENV/bin/python" tools/make_sample.py

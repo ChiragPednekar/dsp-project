@@ -8,7 +8,7 @@
  */
 
 const INK = '#c9d1d9';
-const MUTED = '#6e7681';
+const MUTED = '#7d8590';   // WCAG AA on the plot ground; see --ink-faint
 const GRID = '#21262d';
 const ACCENT = '#00d4a0';
 const BEFORE = '#8b949e';
@@ -114,11 +114,8 @@ function dbAxis(ctx, plotW, plotH, dbMin, dbMax, step, label) {
 }
 
 function polyline(ctx, xs, ys, colour, width, clipTop, clipBottom) {
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(PAD.left, clipTop, xs.length ? 1e5 : 0, clipBottom - clipTop);
-  ctx.restore();
-
+  // Callers clip to the plot rect before calling; values are additionally
+  // clamped per point below so a spike cannot draw over the axes.
   ctx.strokeStyle = colour;
   ctx.lineWidth = width;
   ctx.lineJoin = 'round';

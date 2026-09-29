@@ -12,85 +12,33 @@
  * ported here because the browser has no SciPy.
  */
 
-export const GAIN_MIN_DB = -12.0;
-export const GAIN_MAX_DB = 12.0;
+// Note: `export ... from` below re-exports without binding these names
+// locally, so anything this module *uses* must also be imported here.
+import {
+  BAND_KEYS,
+  GAIN_MAX_DB,
+  GAIN_MIN_DB,
+  HEADROOM_PEAK,
+  PRESETS,
+  flatGains,
+} from './spec.js';
 
-/** Peak the processed signal is limited to. ~0.9 dB below full scale. */
-export const HEADROOM_PEAK = 0.90;
+// The band table, presets and limits are GENERATED from shared/eq_spec.json
+// into web/spec.js — the same file eqcore reads. Nothing in this module may
+// redefine them; they are re-exported so callers still import one module.
+export {
+  GAIN_MIN_DB,
+  GAIN_MAX_DB,
+  HEADROOM_PEAK,
+  MAX_DURATION_SECONDS,
+  BANDS,
+  BAND_KEYS,
+  flatGains,
+  PRESETS,
+  PRESET_NAMES,
+  PRESET_NOTES,
+} from './spec.js';
 
-/**
- * Convert a bandwidth in octaves to the Q a peaking biquad needs.
- *   Q = sqrt(2^N) / (2^N - 1)
- */
-function qFromOctaves(bandwidthOctaves) {
-  const ratio = 2.0 ** bandwidthOctaves;
-  return Math.sqrt(ratio) / (ratio - 1.0);
-}
-
-/**
- * The seven bands, on the classic audio-engineering split of the spectrum.
- * Shelves at the extremes, bells in between. Peaking centres are the geometric
- * mean of the band edges and each Q comes from that band's width in octaves,
- * so the bells tile the spectrum instead of leaving holes between them.
- *
- * `kind` values are Web Audio BiquadFilterNode types. Note that for the two
- * shelves Web Audio ignores `.Q` and uses shelf slope S = 1, which works out
- * to exactly the alpha = sin(w0)/sqrt(2) that eqcore passes as q = 0.707 —
- * the shelves match the Python implementation coefficient for coefficient.
- */
-export const BANDS = [
-  { key: 'sub_bass',   name: 'Sub-bass',   kind: 'lowshelf',  f0: 60.0,   q: 0.707,               span: '20 – 60 Hz' },
-  { key: 'bass',       name: 'Bass',       kind: 'peaking',   f0: 122.0,  q: qFromOctaves(2.06),  span: '60 – 250 Hz' },
-  { key: 'low_mid',    name: 'Low-mid',    kind: 'peaking',   f0: 354.0,  q: qFromOctaves(1.00),  span: '250 – 500 Hz' },
-  { key: 'mid',        name: 'Mid',        kind: 'peaking',   f0: 1000.0, q: qFromOctaves(2.00),  span: '500 Hz – 2 kHz' },
-  { key: 'high_mid',   name: 'High-mid',   kind: 'peaking',   f0: 2828.0, q: qFromOctaves(1.00),  span: '2 – 4 kHz' },
-  { key: 'presence',   name: 'Presence',   kind: 'peaking',   f0: 4899.0, q: qFromOctaves(0.585), span: '4 – 6 kHz' },
-  { key: 'brilliance', name: 'Brilliance', kind: 'highshelf', f0: 8000.0, q: 0.707,               span: '6 – 20 kHz' },
-];
-
-export const BAND_KEYS = BANDS.map((b) => b.key);
-
-/** A neutral setting: every band at 0 dB. */
-export function flatGains() {
-  return Object.fromEntries(BAND_KEYS.map((k) => [k, 0.0]));
-}
-
-export const PRESETS = {
-  'Flat / Reset': flatGains(),
-  'Bass Boost': {
-    sub_bass: 8.0, bass: 6.0, low_mid: 1.5, mid: 0.0,
-    high_mid: 0.0, presence: 0.0, brilliance: 1.5,
-  },
-  'Vocal Boost': {
-    sub_bass: -4.0, bass: -2.0, low_mid: -1.0, mid: 3.5,
-    high_mid: 5.0, presence: 4.0, brilliance: 1.0,
-  },
-  'Treble Boost': {
-    sub_bass: 0.0, bass: -1.0, low_mid: -1.0, mid: 0.0,
-    high_mid: 3.0, presence: 5.0, brilliance: 7.5,
-  },
-  'Loudness (V-shape)': {
-    sub_bass: 6.0, bass: 4.5, low_mid: -1.0, mid: -3.0,
-    high_mid: -1.0, presence: 3.5, brilliance: 6.0,
-  },
-  'Podcast / Speech': {
-    sub_bass: -10.0, bass: -5.0, low_mid: -2.0, mid: 2.5,
-    high_mid: 4.0, presence: 3.0, brilliance: -1.0,
-  },
-};
-
-export const PRESET_NAMES = Object.keys(PRESETS);
-
-export const PRESET_NOTES = {
-  'Flat / Reset': 'All bands at 0 dB — the filter chain becomes a pass-through.',
-  'Bass Boost': 'Low-shelf lift under 60 Hz plus a bell at 122 Hz for weight and punch.',
-  'Vocal Boost': 'Cuts rumble, lifts 1–5 kHz where speech intelligibility lives.',
-  'Treble Boost': 'High-shelf air above 8 kHz with a presence lift for detail.',
-  'Loudness (V-shape)': 'Boosts both extremes and scoops the mids — the classic smiley curve.',
-  'Podcast / Speech': 'Steep low-end cut to kill room rumble, forward upper mids.',
-};
-
-/** A copy of a preset's gains, filled out for every band. */
 export function getPreset(name) {
   const base = flatGains();
   Object.assign(base, PRESETS[name] ?? {});
@@ -224,8 +172,11 @@ export function spectrum(mono, fs, {
   const limit = Math.floor(maxSeconds * fs);
   const sig = mono.length > limit ? mono.subarray(0, limit) : mono;
 
+  // Power of two because the FFT below is radix-2, and never longer than the
+  // signal — eqcore.equalizer.spectrum applies the same two rules, so both
+  // implementations land on the same bin grid even for very short clips.
   let nperseg = Math.min(nFft, Math.max(256, sig.length));
-  nperseg = largestPowerOfTwoAtMost(nperseg);
+  nperseg = largestPowerOfTwoAtMost(Math.min(nperseg, sig.length));
   if (nperseg < 2) {
     return { freqs: new Float64Array([0]), db: new Float64Array([-200]) };
   }

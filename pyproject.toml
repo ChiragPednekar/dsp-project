@@ -1,0 +1,63 @@
+[project]
+name = "dsp-equalizer"
+version = "1.0.0"
+description = "7-band audio equalizer built on cascaded RBJ biquad filters"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = { file = "LICENSE" }
+
+# Runtime pins live in requirements.txt, which is what run.sh and the
+# deployment install. They are mirrored here so `pip install -e .` works too.
+dependencies = [
+    "numpy==2.5.3",
+    "scipy==1.18.1",
+    "soundfile==0.14.0",
+    "streamlit==1.63.0",
+    "matplotlib==3.11.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.4.2",
+    "pytest-cov==6.2.1",
+    "ruff==0.14.2",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["eqcore", "ui"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers --strict-config"
+filterwarnings = [
+    "error",
+    # scipy warns when a Welch segment is longer than the signal; the short-clip
+    # tests exercise that path deliberately.
+    "ignore:nperseg = .* is greater than input length:UserWarning",
+]
+markers = [
+    "slow: sweeps every band x gain x sample rate; excluded by `-m 'not slow'`",
+]
+
+[tool.ruff]
+line-length = 90
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+ignore = [
+    # User-facing copy deliberately uses typographic characters — en dashes in
+    # band ranges, a real minus sign in "-12 dB", curly quotes in error
+    # messages. Those are correct, not typos.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+# E402 stays enabled: the few modules that must import after running code
+# (setting the matplotlib backend, extending sys.path) carry an inline
+# `# noqa: E402` at the point of the exception, and RUF100 keeps those honest.

@@ -11,11 +11,11 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-from matplotlib.figure import Figure  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.figure import Figure
 
-from eqcore import equalizer  # noqa: E402
+from eqcore import equalizer
 
 # Palette tuned for the dark app theme set in .streamlit/config.toml.
 BG = "#0e1117"

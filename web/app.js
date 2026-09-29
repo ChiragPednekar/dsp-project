@@ -12,15 +12,12 @@
  */
 
 import {
-  BANDS, GAIN_MIN_DB, GAIN_MAX_DB, PRESET_NAMES, PRESET_NOTES,
-  flatGains, getPreset, clampGain, spectrum, waveformEnvelope, toMono,
-  peakOf, gainStaging, encodeWav,
+  BANDS, GAIN_MIN_DB, GAIN_MAX_DB, MAX_DURATION_SECONDS, PRESET_NAMES,
+  PRESET_NOTES, flatGains, getPreset, clampGain, spectrum, waveformEnvelope,
+  toMono, peakOf, gainStaging, encodeWav,
 } from './dsp.js';
 import { buildDemoBuffer, DEMO_NAME } from './demo.js';
 import { drawEqCurve, drawSpectrum, drawWaveform } from './plots.js';
-
-/** Refuse absurdly long files rather than melting the tab on a bad upload. */
-const MAX_DURATION_SECONDS = 15 * 60;
 
 /** Seconds of audio used for the live spectrum and peak estimate. */
 const ANALYSIS_SECONDS = 30.0;
@@ -38,6 +35,7 @@ const state = {
   offset: 0,           // position within the buffer at that moment
   appliedGainDb: 0,
   renderToken: 0,
+  lastDraw: null,
 };
 
 let ctx = null;
@@ -179,10 +177,12 @@ async function refreshAnalysis() {
     const trimmed = new Float64Array(mono.length);
     for (let i = 0; i < mono.length; i++) trimmed[i] = mono[i] * staging.scale;
 
-    drawSpectrum(el('spectrumCanvas'), after.freqs, state.analysis.dbBefore,
-                 after.db, rendered.sampleRate);
-    drawWaveform(el('waveCanvas'), state.analysis.envBefore,
-                 waveformEnvelope(trimmed), state.analysis.duration);
+    // Kept so a resize can repaint without re-rendering the audio offline.
+    state.lastDraw = {
+      spectrum: [after.freqs, state.analysis.dbBefore, after.db, rendered.sampleRate],
+      wave: [state.analysis.envBefore, waveformEnvelope(trimmed), state.analysis.duration],
+    };
+    drawAnalysisPlots();
 
     renderHeadroom(staging);
   } catch (err) {
@@ -190,6 +190,13 @@ async function refreshAnalysis() {
   } finally {
     if (token === state.renderToken) setBusy(false);
   }
+}
+
+/** Repaint the spectrum and waveform from the last render's data. */
+function drawAnalysisPlots() {
+  if (!state.lastDraw) return;
+  drawSpectrum(el('spectrumCanvas'), ...state.lastDraw.spectrum);
+  drawWaveform(el('waveCanvas'), ...state.lastDraw.wave);
 }
 
 let analysisTimer = null;
@@ -216,7 +223,9 @@ async function loadArrayBuffer(bytes, name) {
   if (buffer.duration > MAX_DURATION_SECONDS) {
     throw new Error(
       `"${name}" is ${(buffer.duration / 60).toFixed(1)} minutes long; ` +
-      `the limit is ${MAX_DURATION_SECONDS / 60} minutes.`
+      `the limit is ${Math.round(MAX_DURATION_SECONDS / 60)} minutes — ` +
+      `exporting renders the whole clip in memory at once, so the browser ` +
+      `build caps this lower than the desktop app does.`
     );
   }
   setClip(buffer, name);
@@ -333,11 +342,39 @@ function currentPosition() {
 
 function tickProgress() {
   if (!state.playing) return;
-  const pos = currentPosition();
-  const dur = state.buffer.duration;
-  el('progressFill').style.width = `${(pos / dur) * 100}%`;
-  el('position').textContent = timecode(pos);
+  paintPosition(currentPosition());
   requestAnimationFrame(tickProgress);
+}
+
+/**
+ * Paint the playhead everywhere it is shown.
+ *
+ * The bar carries role="slider", so it has to report a value as well as look
+ * like one — a screen reader reads aria-valuetext, not the pixel width.
+ */
+function paintPosition(pos) {
+  if (!state.buffer) return;
+  const dur = state.buffer.duration;
+  const fraction = dur > 0 ? Math.min(1, Math.max(0, pos / dur)) : 0;
+
+  el('progressFill').style.width = `${fraction * 100}%`;
+  el('position').textContent = timecode(pos);
+
+  const bar = el('progress');
+  bar.setAttribute('aria-valuenow', String(Math.round(fraction * 100)));
+  bar.setAttribute('aria-valuetext', `${timecode(pos)} of ${timecode(dur)}`);
+}
+
+/** Move the playhead to an absolute time, keeping playback state. */
+function seekTo(seconds) {
+  if (!state.buffer) return;
+  const to = Math.min(state.buffer.duration, Math.max(0, seconds));
+  if (state.playing) {
+    startPlayback(to);
+  } else {
+    state.offset = to;
+    renderTransport();
+  }
 }
 
 function timecode(t) {
@@ -350,11 +387,7 @@ function renderTransport() {
   el('playBtn').setAttribute('aria-pressed', String(state.playing));
   if (state.buffer) {
     el('duration').textContent = timecode(state.buffer.duration);
-    el('position').textContent = timecode(currentPosition());
-    if (!state.playing) {
-      el('progressFill').style.width =
-        `${(currentPosition() / state.buffer.duration) * 100}%`;
-    }
+    paintPosition(currentPosition());
   }
 }
 
@@ -427,6 +460,26 @@ function redrawEqCurve() {
   audioContext();
   const { freqs, magDb } = eqResponse();
   drawEqCurve(el('eqCanvas'), freqs, magDb);
+  el('eqCanvas').setAttribute('aria-label', describeCurve());
+}
+
+/**
+ * A text equivalent of the response curve.
+ *
+ * The plot is a canvas, which is opaque to assistive technology, so the same
+ * information has to exist as a sentence on the element's aria-label.
+ */
+function describeCurve() {
+  const moved = BANDS
+    .filter((b) => Math.abs(state.gains[b.key]) >= 0.05)
+    .map((b) => `${b.name} ${state.gains[b.key] > 0 ? 'up' : 'down'} `
+      + `${Math.abs(state.gains[b.key]).toFixed(1)} decibels`);
+
+  if (moved.length === 0) {
+    return 'Frequency response of the filter chain. All bands at 0 dB, '
+      + 'so the chain is a pass-through.';
+  }
+  return `Frequency response of the filter chain. ${moved.join(', ')}.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -653,16 +706,35 @@ function init() {
     el('bypassLabel').textContent = state.bypass ? 'Hearing: original' : 'Hearing: equalised';
   });
 
-  el('progress').addEventListener('click', (e) => {
+  const progress = el('progress');
+
+  progress.addEventListener('click', (e) => {
     if (!state.buffer) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const fraction = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    const to = fraction * state.buffer.duration;
-    if (state.playing) startPlayback(to);
-    else {
-      state.offset = to;
-      renderTransport();
-    }
+    seekTo(fraction * state.buffer.duration);
+  });
+
+  // role="slider" promises keyboard operation; without this the bar is
+  // focusable and announced but cannot actually be moved.
+  progress.addEventListener('keydown', (e) => {
+    if (!state.buffer) return;
+    const pos = currentPosition();
+    const step = e.shiftKey ? 1 : 5;
+    const handlers = {
+      ArrowLeft: () => pos - step,
+      ArrowRight: () => pos + step,
+      ArrowDown: () => pos - step,
+      ArrowUp: () => pos + step,
+      PageDown: () => pos - 30,
+      PageUp: () => pos + 30,
+      Home: () => 0,
+      End: () => state.buffer.duration,
+    };
+    const next = handlers[e.key];
+    if (!next) return;
+    e.preventDefault();
+    seekTo(next());
   });
 
   el('resetBtn').addEventListener('click', () => {
@@ -673,15 +745,21 @@ function init() {
   el('downloadBtn').addEventListener('click', downloadProcessed);
 
   // Keep the canvases sharp and correctly sized.
-  const redrawAll = () => {
-    redrawEqCurve();
-    if (state.analysis) refreshAnalysis();
-  };
+  //
+  // A canvas drawn while the layout is still settling captures the wrong
+  // getBoundingClientRect and paints at the wrong scale until something
+  // redraws it. Watching the plot boxes themselves catches every cause of
+  // that -- window resize, the sidebar reflowing, a late web font, the tab
+  // being shown -- which a window 'resize' listener alone does not.
   let resizeTimer = null;
-  window.addEventListener('resize', () => {
+  const observer = new ResizeObserver(() => {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(redrawAll, 150);
+    resizeTimer = setTimeout(() => {
+      redrawEqCurve();
+      drawAnalysisPlots();   // repaints from cached data; no offline render
+    }, 100);
   });
+  for (const node of document.querySelectorAll('.plot')) observer.observe(node);
 
   // Space bar toggles playback unless a control has focus.
   document.addEventListener('keydown', (e) => {

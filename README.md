@@ -4,11 +4,26 @@ A working desktop audio equalizer built for a DSP course. Load a WAV or MP3,
 drag seven band sliders, watch the filter's real frequency response redraw,
 and A/B the result against the original while it plays.
 
+[![CI](https://github.com/ChiragPednekar/dsp-project/actions/workflows/ci.yml/badge.svg)](https://github.com/ChiragPednekar/dsp-project/actions/workflows/ci.yml)
+
 The signal processing is genuine: each band is a second-order IIR biquad
 designed with the Audio EQ Cookbook formulas, cascaded in series and applied
 with `scipy.signal.sosfilt`. Nothing is faked with FFT-bin scaling, and the EQ
 curve on screen is the computed response of the exact filter chain that
 processes the audio.
+
+There are two front ends over one DSP core:
+
+| | What it is | Where it runs |
+|---|---|---|
+| **Desktop** — `app.py` | Streamlit GUI, SciPy filtering, WAV/FLAC/OGG/MP3 export | `./run.sh`, locally |
+| **Browser** — `web/` | Static page, native Web Audio biquads, WAV export | [deployed on Vercel](https://dsp-project-azure.vercel.app) |
+
+**Scope note on the name.** Each band's centre frequency and Q are fixed;
+only the per-band gain is adjustable, which makes this a *graphic* EQ in the
+usual sense. The filters themselves are parametrically designed per band from
+(f₀, Q, gain) via the RBJ formulas, and `biquad.design()` already accepts all
+three — exposing f₀ and Q in the UI is the natural next step, not a rewrite.
 
 ---
 
@@ -31,6 +46,12 @@ Verify the DSP independently at any time:
 
 ```bash
 .venv/bin/python tools/verify_dsp.py
+```
+
+Run the full test suite:
+
+```bash
+.venv/bin/pip install pytest ruff && .venv/bin/pytest && .venv/bin/ruff check .
 ```
 
 ---
@@ -59,22 +80,37 @@ npx vercel deploy --prod
 
 Web Audio's `BiquadFilterNode` implements the *same* Audio EQ Cookbook
 formulas that `eqcore/biquad.py` spells out, so the browser build drives
-native biquads with the band table from `eqcore/equalizer.py` rather than
-reimplementing the coefficients. The two shelves line up as well: Web Audio
-ignores `.Q` on a shelf and uses slope `S = 1`, and
+native biquads rather than reimplementing the coefficients. The two shelves
+line up as well: Web Audio ignores `.Q` on a shelf and uses slope `S = 1`, and
 
     alpha = sin(w0)/2 · sqrt((A + 1/A)(1/S − 1) + 2)  with S = 1
           = sin(w0)·sqrt(2)/2
           = sin(w0)/(2Q)                              with Q = 0.707
 
-which is exactly what `eqcore` passes. Measured against `scipy.signal.sosfreqz`
-for the Loudness preset at 48 kHz, the two responses agree to **4×10⁻⁴ dB** —
-float32 rounding in `getFrequencyResponse`, not an algorithmic difference.
+which is exactly what `eqcore` passes. Every preset's response is checked
+against `scipy.signal.sosfreqz` in a real browser on every push — see
+[Verification](#the-two-front-ends-agree).
 
 What *is* ported by hand, because the browser has no SciPy, is the analysis:
 Welch's method, fractional-octave smoothing and the waveform envelope, all in
-`web/dsp.js`. Those agree with `scipy.signal.welch` to **5×10⁻⁵ dB** across a
-140 dB range, DC bin included.
+`web/dsp.js`. Those are checked against SciPy's own output too.
+
+#### One definition of the bands, not two
+
+The band table, the presets and the limits live in
+[`shared/eq_spec.json`](shared/eq_spec.json). `eqcore/spec.py` loads it, and
+`web/spec.js` is **generated** from it by `tools/gen_web_spec.py`:
+
+```
+shared/eq_spec.json ──> eqcore/spec.py ──> equalizer.BANDS, presets.PRESETS
+                    └─> tools/gen_web_spec.py ──> web/spec.js ──> web/dsp.js
+```
+
+Edit the JSON, then run `python tools/gen_web_spec.py`. CI fails if the
+generated file is stale, and `tests/test_parity.py` additionally evaluates
+`web/spec.js` in Node and compares every band and preset value against the
+Python side. Before this, the two were hand-maintained copies: changing a
+preset in Python left the deployed site quietly serving the old value.
 
 ### Differences from the Python version
 
@@ -82,9 +118,10 @@ Welch's method, fractional-octave smoothing and the waveform envelope, all in
 |---|---|---|
 | Filtering | `scipy.signal.sosfilt`, whole file per change | native biquads, live on the audio thread |
 | Decoding | libsndfile via `soundfile` | the browser's own decoder |
-| Demo clip | `samples/demo.wav`, 7.9 MB in the repo | synthesised on load by `web/demo.js` |
+| Demo clip | `samples/demo.wav`, committed so a fresh clone and the hosted app both have it | synthesised on load by `web/demo.js`, so nothing is shipped |
 | Headroom trim | exact peak of the filtered file | estimated from the first 30 s while you drag; exact on export |
-| Export | WAV or MP3 | 16-bit PCM WAV |
+| Export | WAV, FLAC, OGG or MP3 | 16-bit PCM WAV |
+| Duration cap | 15 minutes | 7 minutes — exporting renders the whole clip into memory at once, which a phone cannot absorb |
 
 Audio never leaves the tab — there is no upload and no server side.
 
@@ -129,29 +166,49 @@ end unchanged.
 ## Project layout
 
 ```
-app.py                  Streamlit GUI — widgets and layout only
-eqcore/
+shared/
+  eq_spec.json          SINGLE SOURCE OF TRUTH — bands, presets, limits
+
+eqcore/                 The DSP library. Imports no GUI framework.
+  spec.py               Loads and validates shared/eq_spec.json
   biquad.py             Audio EQ Cookbook coefficient formulas
   equalizer.py          Band table, SOS cascade, filtering, gain staging, analysis
-  presets.py            Built-in presets
+  presets.py            Presets, built from the spec
   audio_io.py           Decoding, encoding, and user-facing load errors
+
+app.py                  Streamlit GUI — widgets and layout only
 ui/
   plots.py              The three embedded matplotlib figures (Agg, never a popup)
   player.py             Transport component: Play/Pause/Stop + instant A/B
-tools/
-  make_sample.py        Generates samples/demo.wav
-  verify_dsp.py         Numerical proof that the filters do what the curve says
 
 web/                    The static browser build — what Vercel serves
-  index.html            Markup; the band reference table is built from dsp.js
-  dsp.js                Band table, presets, Welch spectrum, envelopes, WAV encoder
+  spec.js               GENERATED from shared/eq_spec.json; do not edit
+  dsp.js                Welch spectrum, smoothing, envelopes, WAV encoder
   demo.js               Port of tools/make_sample.py — builds the demo clip in-tab
   plots.js              The three canvas plots (no charting library)
   app.js                Audio graph, transport, and UI wiring
   styles.css            Dark theme carried over from .streamlit/config.toml
 
+tools/
+  make_sample.py        Generates samples/demo.wav
+  verify_dsp.py         Narrative proof that the filters do what the curve says
+  gen_web_spec.py       shared/eq_spec.json -> web/spec.js
+  gen_golden.py         SciPy reference data -> tests/golden/*.json
+
+tests/
+  test_spec.py          Spec loading, validation, preset integrity
+  test_biquad.py        Coefficient-level properties of each filter type
+  test_equalizer.py     Cascade, measured gain, gain staging, analysis
+  test_audio_io.py      Decode/encode round trips and error messages
+  test_parity.py        Python vs generated JS; generated files not stale
+  test_verify_dsp.py    Runs tools/verify_dsp.py and requires a clean pass
+  golden/               SciPy reference values shared with the JS tests
+  js/                   Node tests for the ported analysis
+  browser/              Playwright test: native Web Audio vs sosfreqz
+
+pyproject.toml          Package metadata, pytest and ruff config
 vercel.json             No-build static deployment of web/
-.vercelignore           Keeps the Python implementation out of the upload
+.github/workflows/ci.yml
 ```
 
 ---
@@ -275,9 +332,19 @@ not hide the effect being measured.
 
 ## Verification
 
+Three suites run on every push ([CI workflow](.github/workflows/ci.yml)):
+
+```bash
+pytest                       # 93 tests — the DSP core, I/O, and cross-language parity
+npm test                     # 21 tests — the browser's ported analysis vs SciPy's output
+npm run test:browser         # 12 tests — native Web Audio vs scipy.signal.sosfreqz
+python tools/verify_dsp.py   # the narrative report, also asserted by pytest
+```
+
+### The filters do what the curve says
+
 `tools/verify_dsp.py` pushes signals through the real `equalizer.process()`
-path and measures the output rather than trusting the design maths. All checks
-pass:
+path and measures the output rather than trusting the design maths.
 
 | Check | Result |
 |---|---|
@@ -293,3 +360,25 @@ pass:
 
 The first row is the important one: a 1 kHz sine through a +12 dB Mid band
 comes out **+12.00 dB** louder, exactly what the on-screen curve predicts.
+
+### The two front ends agree
+
+These numbers are asserted by the test suite, not measured once by hand:
+
+| Comparison | Tolerance | Where |
+|---|---|---|
+| Native Web Audio cascade vs `scipy.signal.sosfreqz` — 6 presets × 2 sample rates | **< 5×10⁻³ dB** (float32 floor) | `tests/browser/response.spec.mjs` |
+| Ported Welch spectrum vs `scipy.signal.welch`, raw and 1/12-octave smoothed | **< 1×10⁻⁶ dB** | `tests/js/dsp.test.mjs` |
+| Ported waveform envelope vs `equalizer.waveform_envelope` | **< 1×10⁻⁹** | `tests/js/dsp.test.mjs` |
+| Gain staging (scale, dB, clipped flag) across 9 peak levels | exact | `tests/js/dsp.test.mjs` |
+| Every band and preset value, Python vs generated JS | exact | `tests/test_parity.py` |
+
+Reference values come from `tests/golden/*.json`, generated from SciPy by
+`tools/gen_golden.py`. `tests/test_parity.py` fails if those files go stale, so
+the two suites cannot drift apart without something going red.
+
+---
+
+## License
+
+[MIT](LICENSE).

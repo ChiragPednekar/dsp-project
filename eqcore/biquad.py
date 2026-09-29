@@ -41,7 +41,7 @@ def peaking(f0: float, gain_db: float, q: float, fs: float) -> np.ndarray:
     Q sets how wide the bell is: bandwidth (in octaves) narrows as Q rises.
     """
     a_gain = 10.0 ** (gain_db / 40.0)          # sqrt of linear amplitude gain
-    w0, cos_w0, sin_w0 = _prewarp(f0, fs)
+    _, cos_w0, sin_w0 = _prewarp(f0, fs)
     alpha = sin_w0 / (2.0 * q)
 
     b0 = 1.0 + alpha * a_gain
@@ -60,7 +60,7 @@ def low_shelf(f0: float, gain_db: float, q: float, fs: float) -> np.ndarray:
     everything well above f0 is left alone.
     """
     a_gain = 10.0 ** (gain_db / 40.0)
-    w0, cos_w0, sin_w0 = _prewarp(f0, fs)
+    _, cos_w0, sin_w0 = _prewarp(f0, fs)
     alpha = sin_w0 / (2.0 * q)
     sqrt_a = np.sqrt(a_gain)
     two_sqrt_a_alpha = 2.0 * sqrt_a * alpha
@@ -81,7 +81,7 @@ def high_shelf(f0: float, gain_db: float, q: float, fs: float) -> np.ndarray:
     everything well below f0 is left alone.
     """
     a_gain = 10.0 ** (gain_db / 40.0)
-    w0, cos_w0, sin_w0 = _prewarp(f0, fs)
+    _, cos_w0, sin_w0 = _prewarp(f0, fs)
     alpha = sin_w0 / (2.0 * q)
     sqrt_a = np.sqrt(a_gain)
     two_sqrt_a_alpha = 2.0 * sqrt_a * alpha

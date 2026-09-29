@@ -1,5 +1,11 @@
 """
-The 7-band graphic equaliser itself.
+The 7-band equaliser itself.
+
+Scope note: each band's centre frequency and Q are fixed by
+`shared/eq_spec.json`; only the per-band gain is adjustable. That makes this a
+graphic EQ in the usual sense of the term. Exposing f0 and Q per band is the
+natural next step -- `biquad.design` already takes both -- and is tracked in
+the README.
 
 Design: one biquad per band, cascaded in series as a bank of second-order
 sections. The lowest band is a low shelf, the highest a high shelf, and the
@@ -21,29 +27,18 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import signal
 
-from . import biquad
+from . import biquad, spec
+
+# Re-exported (PEP 484 explicit form): callers import it from here.
+from .spec import q_from_octaves as q_from_octaves
 
 #: Peak level the processed signal is limited to, in linear amplitude.
 #: Leaves ~0.9 dB of headroom below full scale so that boosted material does
 #: not clip when written to a 16-bit WAV.
-HEADROOM_PEAK = 0.90
+HEADROOM_PEAK = spec.HEADROOM_PEAK
 
-GAIN_MIN_DB = -12.0
-GAIN_MAX_DB = 12.0
-
-
-def q_from_octaves(bandwidth_octaves: float) -> float:
-    """
-    Convert a bandwidth in octaves to the Q a peaking biquad needs.
-
-        Q = sqrt(2^N) / (2^N - 1)
-
-    A wide band (2 octaves) gives a low Q and a gentle bell; a narrow band
-    (half an octave) gives a high Q and a sharp one. Using this instead of
-    hand-picked Q values is what makes the bands tile the spectrum evenly.
-    """
-    ratio = 2.0 ** bandwidth_octaves
-    return float(np.sqrt(ratio) / (ratio - 1.0))
+GAIN_MIN_DB = spec.GAIN_MIN_DB
+GAIN_MAX_DB = spec.GAIN_MAX_DB
 
 
 @dataclass(frozen=True)
@@ -62,17 +57,21 @@ class Band:
         return f"{self.name}  ·  {self.span}"
 
 
-# Bands are laid out on the classic audio-engineering split of the spectrum.
-# Peaking centres are the geometric mean of the band edges, and each Q is
-# derived from that band's width in octaves so the bells meet cleanly.
-BANDS: tuple[Band, ...] = (
-    Band("sub_bass", "Sub-bass", "low_shelf", 60.0, 0.707, "20 – 60 Hz"),
-    Band("bass", "Bass", "peaking", 122.0, q_from_octaves(2.06), "60 – 250 Hz"),
-    Band("low_mid", "Low-mid", "peaking", 354.0, q_from_octaves(1.00), "250 – 500 Hz"),
-    Band("mid", "Mid", "peaking", 1000.0, q_from_octaves(2.00), "500 Hz – 2 kHz"),
-    Band("high_mid", "High-mid", "peaking", 2828.0, q_from_octaves(1.00), "2 – 4 kHz"),
-    Band("presence", "Presence", "peaking", 4899.0, q_from_octaves(0.585), "4 – 6 kHz"),
-    Band("brilliance", "Brilliance", "high_shelf", 8000.0, 0.707, "6 – 20 kHz"),
+# Built from shared/eq_spec.json rather than written out here, so the browser
+# build (web/spec.js, generated from the same file) cannot drift away from it.
+# The layout follows the classic audio-engineering split of the spectrum:
+# peaking centres are the geometric mean of the band edges, and each bell's Q
+# is derived from its width in octaves so the bells meet cleanly.
+BANDS: tuple[Band, ...] = tuple(
+    Band(
+        key=entry["key"],
+        name=entry["name"],
+        kind=entry["kind"],
+        f0=float(entry["f0"]),
+        q=spec.band_q(entry),
+        span=entry["span"],
+    )
+    for entry in spec.band_entries()
 )
 
 BAND_KEYS: tuple[str, ...] = tuple(b.key for b in BANDS)
@@ -168,6 +167,18 @@ def process(
     """
     sos = build_sos(gains, fs)
 
+    audio = np.asarray(audio)
+    if audio.size == 0:
+        # sosfilt cannot reshape a zero-length array. The GUI never gets here
+        # (audio_io rejects empty files), but eqcore is usable on its own and
+        # should hand back an empty result rather than raise.
+        return ProcessResult(
+            audio=audio.astype(np.float32),
+            applied_gain_db=0.0,
+            peak_before=0.0,
+            clipped=False,
+        )
+
     # sosfilt operates along `axis`; time is axis 0 in both the mono and the
     # (frames, channels) layout soundfile gives us.
     filtered = signal.sosfilt(sos, audio, axis=0)
@@ -227,6 +238,11 @@ def octave_smooth(freqs: np.ndarray, power: np.ndarray, fraction: float = 12.0):
     return (csum[hi] - csum[lo]) / (hi - lo)
 
 
+def _largest_power_of_two_at_most(n: int) -> int:
+    """The largest power of two <= n (0 for n < 1)."""
+    return 1 << (int(n).bit_length() - 1) if n >= 1 else 0
+
+
 def spectrum(
     audio: np.ndarray,
     fs: float,
@@ -250,7 +266,15 @@ def spectrum(
     if mono.size > limit:
         mono = mono[:limit]
 
-    nperseg = int(min(n_fft, max(256, mono.size)))
+    # Rounded down to a power of two, and never longer than the signal. The
+    # browser port (web/dsp.js) has a radix-2 FFT and can only use power-of-two
+    # segments; matching that here keeps the two spectra on the same bin grid
+    # instead of quietly diverging on short clips.
+    nperseg = _largest_power_of_two_at_most(
+        min(int(min(n_fft, max(256, mono.size))), mono.size)
+    )
+    if nperseg < 2:
+        return np.zeros(1), np.full(1, -200.0)
     freqs, psd = signal.welch(
         mono,
         fs=fs,

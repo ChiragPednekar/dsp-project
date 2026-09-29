@@ -65,7 +65,10 @@ _TEMPLATE = """
   button:active:not(:disabled) { transform: translateY(1px); }
   button:disabled { opacity: .4; cursor: not-allowed; }
   button.primary { border-color: var(--accent-dim); color: var(--accent); }
-  button.primary:hover:not(:disabled) { background: #0f2b25; border-color: var(--accent); }
+  button.primary:hover:not(:disabled) {
+    background: #0f2b25;
+    border-color: var(--accent);
+  }
   .spacer { flex: 1; }
   .ab {
     border-color: var(--accent-dim);
