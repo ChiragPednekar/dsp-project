@@ -11,6 +11,12 @@ can rebuild the exact same samples without shipping megabytes of audio.
 
 Run:   python tools/gen_golden.py
 Check: python tools/gen_golden.py --check    (exit 1 if the files are stale)
+
+--check compares numerically, not byte for byte. SciPy is not bit-reproducible
+across platforms -- the same call returns values differing in the last few
+digits on macOS/arm64 and Linux/x86_64 -- so a text comparison would fail in CI
+for files that are perfectly current. The tolerance below is many orders of
+magnitude tighter than any real implementation change.
 """
 
 from __future__ import annotations
@@ -152,6 +158,56 @@ def render(name: str) -> str:
     return json.dumps(FILES[name](), indent=2, sort_keys=True) + "\n"
 
 
+#: Numbers this close are platform noise, not a change in the implementation.
+#: A genuine edit to a band, preset or algorithm moves values by >= 1e-3.
+RTOL = 1e-7
+ATOL = 1e-9
+
+
+def differences(expected, actual, path: str = "") -> list[str]:
+    """
+    Human-readable differences between two parsed golden structures.
+
+    Structure must match exactly; floats need only agree to RTOL/ATOL.
+    """
+    where = path or "<root>"
+
+    if isinstance(expected, dict):
+        if not isinstance(actual, dict):
+            return [f"{where}: expected an object, found {type(actual).__name__}"]
+        out = []
+        for key in sorted(set(expected) | set(actual)):
+            if key not in actual:
+                out.append(f"{where}.{key}: missing")
+            elif key not in expected:
+                out.append(f"{where}.{key}: unexpected")
+            else:
+                out += differences(expected[key], actual[key], f"{path}.{key}")
+        return out
+
+    if isinstance(expected, list):
+        if not isinstance(actual, list):
+            return [f"{where}: expected a list, found {type(actual).__name__}"]
+        if len(expected) != len(actual):
+            return [f"{where}: length {len(actual)}, expected {len(expected)}"]
+        out = []
+        for i, (e, a) in enumerate(zip(expected, actual, strict=True)):
+            out += differences(e, a, f"{path}[{i}]")
+        return out
+
+    if isinstance(expected, bool) or isinstance(actual, bool):
+        return [] if expected == actual else [f"{where}: {actual!r} != {expected!r}"]
+
+    if isinstance(expected, (int, float)) and isinstance(actual, (int, float)):
+        tolerance = ATOL + RTOL * abs(expected)
+        delta = abs(float(expected) - float(actual))
+        if delta > tolerance:
+            return [f"{where}: {actual!r} != {expected!r} (off by {delta:.3e})"]
+        return []
+
+    return [] if expected == actual else [f"{where}: {actual!r} != {expected!r}"]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true",
@@ -163,24 +219,34 @@ def main() -> int:
 
     for name in FILES:
         path = GOLDEN_DIR / name
-        rendered = render(name)
+
         if args.check:
-            current = path.read_text(encoding="utf-8") if path.exists() else ""
-            if current != rendered:
-                stale.append(name)
+            if not path.exists():
+                stale.append(f"tests/golden/{name}: missing")
+                continue
+            committed = json.loads(path.read_text(encoding="utf-8"))
+            diffs = differences(FILES[name](), committed)
+            if diffs:
+                shown = diffs[:5]
+                if len(diffs) > len(shown):
+                    shown.append(f"... and {len(diffs) - len(shown)} more")
+                stale.append(
+                    f"tests/golden/{name}:\n    " + "\n    ".join(shown)
+                )
         else:
-            path.write_text(rendered, encoding="utf-8")
+            path.write_text(render(name), encoding="utf-8")
             print(f"wrote tests/golden/{name}")
 
     if args.check:
         if stale:
             print(
-                "STALE golden file(s): " + ", ".join(stale)
-                + "\nRun: python tools/gen_golden.py",
+                "Golden file(s) no longer match the Python implementation:\n\n"
+                + "\n".join(stale)
+                + "\n\nRun: python tools/gen_golden.py",
                 file=sys.stderr,
             )
             return 1
-        print("golden files are up to date.")
+        print(f"golden files agree with SciPy (rtol={RTOL:g}, atol={ATOL:g}).")
     return 0
 
 
